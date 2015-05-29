@@ -21,12 +21,13 @@ def dropAndCreateTable():
   conn = sqlite3.connect(SQLITE_FILE_NAME)
   c = conn.cursor()
   c.execute('DROP TABLE IF EXISTS lv1')
-  c.execute('CREATE TABLE lv1(id INTEGER PRIMARY KEY ASC, name TEXT, url TEXT, status TEXT)')
+  c.execute('CREATE TABLE IF NOT EXISTS lv1(id INTEGER PRIMARY KEY ASC, name TEXT, url TEXT, status TEXT)')
   c.execute('DROP TABLE IF EXISTS lv2')
-  c.execute('CREATE TABLE lv2(id INTEGER PRIMARY KEY ASC, lv1id INTEGER, name TEXT, url TEXT, status TEXT)')
+  c.execute('CREATE TABLE IF NOT EXISTS lv2(id INTEGER PRIMARY KEY ASC, lv1id INTEGER, name TEXT, url TEXT, status TEXT)')
   c.execute('DROP TABLE IF EXISTS lv3')
-  c.execute('CREATE TABLE lv3(id INTEGER PRIMARY KEY ASC, lv1id INTEGER, lv2id INTEGER, name TEXT, url TEXT, desc TEXT, status TEXT)')
-  # TODO: level4
+  c.execute('CREATE TABLE IF NOT EXISTS lv3(id INTEGER PRIMARY KEY ASC, lv1id INTEGER, lv2id INTEGER, name TEXT, url TEXT, desc TEXT, status TEXT)')
+  c.execute('DROP TABLE IF EXISTS lv4')
+  c.execute('CREATE TABLE IF NOT EXISTS lv4(id INTEGER PRIMARY KEY ASC, lv1id INTEGER, lv2id INTEGER, lv3id INTEGER, logo TEXT, name TEXT, page TEXT, info TEXT, desc TEXT, others TEXT, midd TEXT, email TEXT)')
   conn.commit()
   conn.close()
 
@@ -118,7 +119,7 @@ def getLevel3():
 def getLevel4():
   conn = sqlite3.connect(SQLITE_FILE_NAME)
   c = conn.cursor()
-  rows = c.execute("SELECT id, lv1id, lv2id, name, url FROM lv3 WHERE status = 'no' LIMIT 1") # TODO: remove limit
+  rows = c.execute("SELECT id, lv1id, lv2id, name, url FROM lv3 WHERE status = 'no' LIMIT 100") # TODO: remove limit
   # 因為後面會用到 cursor, 所以要先暫存起來
   lvs = []
   for row in rows:
@@ -126,8 +127,10 @@ def getLevel4():
   i = 1
   for lv in lvs:
     result = {}
+    result['lv1id'] = lv[1]
+    result['lv2id'] = lv[2]
+    result['lv3id'] = lv[0]
     url = urlparse.urljoin(HOME_PAGE, lv[4])
-    url = 'http://business.com.tw/com/com.asp?id=1yiepp7ns9h8m6j'
     print 'get %s(%s/%s): %s' % (lv[3], i, len(lvs), url)
     i = i + 1
     string = urllib2.urlopen(url).read()
@@ -142,14 +145,23 @@ def getLevel4():
     items = select(html)
     result['name'] = items[0].text
     result['page'] = items[0].get("href")
-    # 找 
-
-
-
-
-
-    print '------------------'
-    print result
+    # 找 info + desc 
+    select = cssselect.CSSSelector(r'table td')
+    items = select(html)
+    result['info'] = "|||".join([it for it in items[0].itertext()])
+    result['desc'] = "|||".join([it for it in items[1].itertext()])
+    # 找 others
+    select = cssselect.CSSSelector(r'center')
+    items = select(html)
+    result['others'] = ((len(items) == 2) and ["|||".join([it for it in items[1].itertext()])] or [''])[0]
+    # 找 midd
+    select = cssselect.CSSSelector(r'form input[name=midd]')
+    items = select(html)
+    result['midd'] = items[0].get('value')
+    # insert and update sqlite 
+    c.execute("INSERT INTO lv4(lv1id, lv2id, lv3id, logo, name, page, info, desc, others, midd, email) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')", (result['lv1id'], result['lv2id'], result['lv3id'], result['logo'], result['name'], result['page'], result['info'], result['desc'], result['others'], result['midd']))
+    c.execute("UPDATE lv3 SET status = 'yes' WHERE id = %s" % (lv[0]))
+    conn.commit() # 每一批就存一次
 
 def runit(msg):
   clear = lambda: os.system('cls')

@@ -82,7 +82,7 @@ def getLevel2():
 def getLevel3():
   conn = sqlite3.connect(SQLITE_FILE_NAME)
   c = conn.cursor()
-  rows = c.execute("SELECT id, lv1id, name, url FROM lv2 WHERE status = 'no' limit 3") # TODO: remove limit
+  rows = c.execute("SELECT id, lv1id, name, url FROM lv2 WHERE status = 'no'") # TODO: remove limit
   # 因為後面會用到 cursor, 所以要先暫存起來
   lvs = []
   for row in rows:
@@ -119,7 +119,7 @@ def getLevel3():
 def getLevel4():
   conn = sqlite3.connect(SQLITE_FILE_NAME)
   c = conn.cursor()
-  rows = c.execute("SELECT id, lv1id, lv2id, name, url FROM lv3 WHERE status = 'no' LIMIT 100") # TODO: remove limit
+  rows = c.execute("SELECT id, lv1id, lv2id, name, url FROM lv3 WHERE status = 'no'") # TODO: remove limit
   # 因為後面會用到 cursor, 所以要先暫存起來
   lvs = []
   for row in rows:
@@ -143,8 +143,15 @@ def getLevel4():
     # 找 公司名 + 官網
     select = cssselect.CSSSelector(r'font a')
     items = select(html)
-    result['name'] = items[0].text
-    result['page'] = items[0].get("href")
+    if items:
+      result['name'] = items[0].text
+      result['page'] = items[0].get("href")
+    else: # 有些公司沒官網
+      select = cssselect.CSSSelector(r'font b nobr')
+      items = select(html)
+      result['name'] = items[0].text
+      result['page'] = ''
+
     # 找 info + desc 
     select = cssselect.CSSSelector(r'table td')
     items = select(html)
@@ -157,7 +164,10 @@ def getLevel4():
     # 找 midd
     select = cssselect.CSSSelector(r'form input[name=midd]')
     items = select(html)
-    result['midd'] = items[0].get('value')
+    if items:
+      result['midd'] = items[0].get('value')
+    else: # 有些公司沒 email
+      result['midd'] = ''
     # insert and update sqlite 
     c.execute("INSERT INTO lv4(lv1id, lv2id, lv3id, logo, name, page, info, desc, others, midd, email) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')", (result['lv1id'], result['lv2id'], result['lv3id'], result['logo'], result['name'], result['page'], result['info'], result['desc'], result['others'], result['midd']))
     c.execute("UPDATE lv3 SET status = 'yes' WHERE id = %s" % (lv[0]))
@@ -165,35 +175,41 @@ def getLevel4():
 
 def runit(msg):
   clear = lambda: os.system('cls')
-  #clear()
+  # clear()
   if msg:
     print msg
-  print """
-    1: drop and create table
-    2: get level 1 data
-    3: get level 2 data 
-    4: get level 3 data
-    5: get level 4 data
-    others/empty: quit()
+  print u"""
+    DELETE: 刪除table重新建(指令是大寫)
+    1: get level 1 data(每次都會抓新的)
+    2: get level 2 data(如果中斷會繼續抓)
+    3: get level 3 data(如果中斷會繼續抓)
+    4: get level 4 data(如果中斷會繼續抓)
+    (輸入其他不認識的命令): quit program
+    注意基本上都是 insert 所以 level 1 資料抓取多次
+    那後面的 2 3 4 會出現多份資料
+    抓太多次(可能是 1000)會變成 404 錯誤
+    所以小心操作 目前還不知道什麼條件放開
+    換 ip 可以解決
+
   """
   cmd = raw_input("Please enter cmd: ")
-  if cmd == '1':
+  if cmd == 'DELETE':
     print ">> drop and create tables"
     dropAndCreateTable()
     msg = "== drop and create table okay =="
-  elif cmd == '2':
+  elif cmd == '1':
     print ">> get level 1 data..."
     getLevel1()
     msg = "== get level 1 data okay =="
-  elif cmd == '3':
+  elif cmd == '2':
     print ">> get level 2 data..."
     getLevel2()
     msg = '== get level 2 data okay =='
-  elif cmd == '4':
+  elif cmd == '3':
     print ">> get level 3 data..."
     getLevel3()
     msg = '== get level 3 data okay =='
-  elif cmd == '5':
+  elif cmd == '4':
     print ">> get level 4 data..."
     getLevel4()
     msg = '== get level 4 data okay =='

@@ -1,21 +1,19 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import urllib
-import urllib2
+from urllib.request import urlopen
+import urllib.request
 import os.path
 import json
 from lxml import etree, cssselect
 import codecs
 import sqlite3
 import sys, os, re
-import urlparse
-from bs4 import BeautifulSoup
+import urllib.parse
 import chardet
 
 HOME_PAGE = 'http://business.com.tw/prod/productc1.htm'
 SQLITE_FILE_NAME = 'data.db'
-
 
 def dropAndCreateTable():
   conn = sqlite3.connect(SQLITE_FILE_NAME)
@@ -33,7 +31,7 @@ def dropAndCreateTable():
 
 def getLevel1():
   # 抓首頁的 html source code
-  string = urllib2.urlopen(HOME_PAGE).read()
+  string = urllib.request.urlopen(HOME_PAGE).read()
   parser = etree.HTMLParser()
   html = etree.fromstring(string, parser)
   # 找出 a 標籤, 其中 href 以 /cop/com.asp?id= 開頭
@@ -54,7 +52,7 @@ def getLevel1():
 def getLevel2():
   conn = sqlite3.connect(SQLITE_FILE_NAME)
   c = conn.cursor()
-  rows = c.execute("SELECT id, name, url FROM lv1 WHERE status = 'no'") # TODO: remove limit
+  rows = c.execute("SELECT id, name, url FROM lv1 WHERE status = 'no' ") # TODO: remove limit
   # 因為後面會用到 cursor, 所以要先暫存起來
   lvs = []
   for row in rows:
@@ -62,10 +60,10 @@ def getLevel2():
 
   i = 1
   for lv in lvs:
-    url = urlparse.urljoin(HOME_PAGE, lv[2])
-    print 'get %s(%s/%s): %s' % (lv[1], i, len(lvs), url)
+    url = urllib.parse.urljoin(HOME_PAGE, lv[2])
+    print('get %s(%s/%s): %s' % (lv[1], i, len(lvs), url))
     i = i + 1
-    string = urllib2.urlopen(url).read()
+    string = urllib.request.urlopen(url).read()
     parser = etree.HTMLParser()
     html = etree.fromstring(string, parser)
     select = cssselect.CSSSelector(r'a[href^="/cop/com.asp?id="]')
@@ -78,11 +76,10 @@ def getLevel2():
     conn.commit() # 每一批就存一次
   conn.close()
 
-
 def getLevel3():
   conn = sqlite3.connect(SQLITE_FILE_NAME)
   c = conn.cursor()
-  rows = c.execute("SELECT id, lv1id, name, url FROM lv2 WHERE status = 'no'") # TODO: remove limit
+  rows = c.execute("SELECT id, lv1id, name, url FROM lv2 WHERE status = 'no' limit 50") # TODO: remove limit
   # 因為後面會用到 cursor, 所以要先暫存起來
   lvs = []
   for row in rows:
@@ -90,10 +87,42 @@ def getLevel3():
 
   i = 1
   for lv in lvs:
-    url = urlparse.urljoin(HOME_PAGE, lv[3])
-    print 'get %s(%s/%s): %s' % (lv[2], i, len(lvs), url)
+    url = urllib.parse.urljoin(HOME_PAGE, lv[3])
+    print('get %s(%s/%s): %s' % (lv[2], i, len(lvs), url))
     i = i + 1
-    string = urllib2.urlopen(url).read()
+    string = urllib.request.urlopen(url).read()
+    parser = etree.HTMLParser()
+    html = etree.fromstring(string, parser)
+    select = cssselect.CSSSelector(r'li a')
+    items = select(html)
+    result = []
+    for item in items:
+      name = item.text
+      url = item.get('href')
+      foo = item.getparent().getchildren()
+      desc = (len(foo) == 3 and [foo[2].text] or [item.getparent().getnext().text])[0]
+      result.append((lv[1], lv[0], name, url, desc))
+    c.executemany("INSERT INTO lv3(lv1id, lv2id, name, url, desc, status) VALUES(?, ?, ?, ?, ?, 'no')", result)
+    c.execute("UPDATE lv2 SET status = 'yes' WHERE id = %s" % (lv[0]))
+    conn.commit() # 每一批就存一次
+  conn.close() 
+
+
+def getLevel3Re(): # use re
+  conn = sqlite3.connect(SQLITE_FILE_NAME)
+  c = conn.cursor()
+  rows = c.execute("SELECT id, lv1id, name, url FROM lv2 WHERE status = 'no' ") # TODO: remove limit
+  # 因為後面會用到 cursor, 所以要先暫存起來
+  lvs = []
+  for row in rows:
+    lvs.append((row[0], row[1], row[2], row[3]))
+
+  i = 1
+  for lv in lvs:
+    url = urllib.parse.urljoin(HOME_PAGE, lv[3])
+    print('get %s(%s/%s): %s' % (lv[2], i, len(lvs), url))
+    i = i + 1
+    string = urllib.request.urlopen(url).read()
 
     # 處理亂碼的部分
     fsencode = sys.getfilesystemencoding() # 系统默认编码
@@ -101,15 +130,16 @@ def getLevel3():
     string = string.decode(htmlencode, 'ignore').encode(fsencode) # 先转换成unicode编码，然后转换系统编码输出
 
     # replace all font tags
-    string = re.sub(ur'\<\/?font[^>]*>', '', string)
+    string = re.sub(r'\<\/?font[^>]*>', '', string)
     # get all elements in ul
-    string = re.sub(ur'.*\<ul>(.*)\<\/ul>.*', r'\1', string)
+    string = re.sub(r'.*\<ul>(.*)\<\/ul>.*', r'\1', string)
     # match elemtns in li tag
-    match = re.findall(ur"\<li>\<a href='(.*?)'>(.*?)\<\/a>(.*?)\<\/li>", string)
+    match = re.findall(r"\<li>\<a href='(.*?)'>(.*?)\<\/a>(.*?)\<\/li>", string)
     result = []
     for url, name, desc in match:
-      name = name.decode('GB2312', 'ignore')
-      desc = desc.decode('GB2312', 'ignore')
+      # print chardet.detect(name).get('encoding', 'utf-8')
+      name = name.decode('Big5', 'ignore')
+      desc = desc.decode('Big5', 'ignore')
       result.append((lv[0], lv[1], name, url, desc))
     c.executemany("INSERT INTO lv3(lv1id, lv2id, name, url, desc, status) VALUES(?, ?, ?, ?, ?, 'no')", result)
     c.execute("UPDATE lv2 SET status = 'yes' WHERE id = %s" % (lv[0]))
@@ -119,7 +149,7 @@ def getLevel3():
 def getLevel4():
   conn = sqlite3.connect(SQLITE_FILE_NAME)
   c = conn.cursor()
-  rows = c.execute("SELECT id, lv1id, lv2id, name, url FROM lv3 WHERE status = 'no'") # TODO: remove limit
+  rows = c.execute("SELECT id, lv1id, lv2id, name, url FROM lv3 WHERE status = 'no' limit 1") # TODO: remove limit
   # 因為後面會用到 cursor, 所以要先暫存起來
   lvs = []
   for row in rows:
@@ -130,16 +160,16 @@ def getLevel4():
     result['lv1id'] = lv[1]
     result['lv2id'] = lv[2]
     result['lv3id'] = lv[0]
-    url = urlparse.urljoin(HOME_PAGE, lv[4])
-    print 'get %s(%s/%s): %s' % (lv[3], i, len(lvs), url)
+    url = urllib.parse.urljoin(HOME_PAGE, lv[4])
+    print('get %s(%s/%s): %s' % (lv[3], i, len(lvs), url))
     i = i + 1
-    string = urllib2.urlopen(url).read()
+    string = urllib.request.urlopen(url).read()
     parser = etree.HTMLParser()
     html = etree.fromstring(string, parser)
     # 找 logo
     select = cssselect.CSSSelector(r'font img')
     items = select(html)
-    result['logo'] = (items and [urlparse.urljoin(HOME_PAGE, items[0].get("src"))] or [''])[0]
+    result['logo'] = (items and [urllib.parse.urljoin(HOME_PAGE, items[0].get("src"))] or [''])[0]
     # 找 公司名 + 官網
     select = cssselect.CSSSelector(r'font a')
     items = select(html)
@@ -177,10 +207,10 @@ def runit(msg):
   clear = lambda: os.system('cls')
   # clear()
   if msg:
-    print msg
-  print u"""
-    DELETE: 刪除table重新建(指令是大寫)
-    1: get level 1 data(每次都會抓新的)
+    print(msg)
+  print("""
+    TABLES: 刪除table重新建(指令是大寫)
+    13579: get level 1 data(每次都會抓新的)
     2: get level 2 data(如果中斷會繼續抓)
     3: get level 3 data(如果中斷會繼續抓)
     4: get level 4 data(如果中斷會繼續抓)
@@ -188,29 +218,28 @@ def runit(msg):
     注意基本上都是 insert 所以 level 1 資料抓取多次
     那後面的 2 3 4 會出現多份資料
     抓太多次(可能是 1000)會變成 404 錯誤
-    所以小心操作 目前還不知道什麼條件放開
-    換 ip 可以解決
+    換 ip 或是過好幾個小時 可以解決
 
-  """
-  cmd = raw_input("Please enter cmd: ")
-  if cmd == 'DELETE':
-    print ">> drop and create tables"
+  """)
+  cmd = input("Please enter cmd: ")
+  if cmd == 'TABLES':
+    print(">> drop and create tables")
     dropAndCreateTable()
     msg = "== drop and create table okay =="
-  elif cmd == '1':
-    print ">> get level 1 data..."
+  elif cmd == '13579':
+    print(">> get level 1 data...")
     getLevel1()
     msg = "== get level 1 data okay =="
   elif cmd == '2':
-    print ">> get level 2 data..."
+    print(">> get level 2 data...")
     getLevel2()
     msg = '== get level 2 data okay =='
   elif cmd == '3':
-    print ">> get level 3 data..."
+    print(">> get level 3 data...")
     getLevel3()
     msg = '== get level 3 data okay =='
   elif cmd == '4':
-    print ">> get level 4 data..."
+    print(">> get level 4 data...")
     getLevel4()
     msg = '== get level 4 data okay =='
   else:

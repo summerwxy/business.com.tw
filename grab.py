@@ -11,6 +11,8 @@ import sqlite3
 import sys, os, re
 import urllib.parse
 import chardet
+import time
+
 
 HOME_PAGE = 'http://business.com.tw/prod/productc1.htm'
 SQLITE_FILE_NAME = 'data.db'
@@ -107,45 +109,6 @@ def getLevel3():
     conn.commit() # 每一批就存一次
   conn.close() 
 
-
-def getLevel3Re(): # use re
-  conn = sqlite3.connect(SQLITE_FILE_NAME)
-  c = conn.cursor()
-  rows = c.execute("SELECT id, lv1id, name, url FROM lv2 WHERE status = 'no' ") # TODO: remove limit
-  # 因為後面會用到 cursor, 所以要先暫存起來
-  lvs = []
-  for row in rows:
-    lvs.append((row[0], row[1], row[2], row[3]))
-
-  i = 1
-  for lv in lvs:
-    url = urllib.parse.urljoin(HOME_PAGE, lv[3])
-    print('get %s(%s/%s): %s' % (lv[2], i, len(lvs), url))
-    i = i + 1
-    string = urllib.request.urlopen(url).read()
-
-    # 處理亂碼的部分
-    fsencode = sys.getfilesystemencoding() # 系统默认编码
-    htmlencode = chardet.detect(string).get('encoding', 'utf-8') # 通过第3方模块来自动提取网页的编码
-    string = string.decode(htmlencode, 'ignore').encode(fsencode) # 先转换成unicode编码，然后转换系统编码输出
-
-    # replace all font tags
-    string = re.sub(r'\<\/?font[^>]*>', '', string)
-    # get all elements in ul
-    string = re.sub(r'.*\<ul>(.*)\<\/ul>.*', r'\1', string)
-    # match elemtns in li tag
-    match = re.findall(r"\<li>\<a href='(.*?)'>(.*?)\<\/a>(.*?)\<\/li>", string)
-    result = []
-    for url, name, desc in match:
-      # print chardet.detect(name).get('encoding', 'utf-8')
-      name = name.decode('Big5', 'ignore')
-      desc = desc.decode('Big5', 'ignore')
-      result.append((lv[0], lv[1], name, url, desc))
-    c.executemany("INSERT INTO lv3(lv1id, lv2id, name, url, desc, status) VALUES(?, ?, ?, ?, ?, 'no')", result)
-    c.execute("UPDATE lv2 SET status = 'yes' WHERE id = %s" % (lv[0]))
-    conn.commit() # 每一批就存一次
-  conn.close()
-
 def getLevel4():
   conn = sqlite3.connect(SQLITE_FILE_NAME)
   c = conn.cursor()
@@ -202,6 +165,32 @@ def getLevel4():
     c.execute("INSERT INTO lv4(lv1id, lv2id, lv3id, logo, name, page, info, desc, others, midd, email) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '')", (result['lv1id'], result['lv2id'], result['lv3id'], result['logo'], result['name'], result['page'], result['info'], result['desc'], result['others'], result['midd']))
     c.execute("UPDATE lv3 SET status = 'yes' WHERE id = %s" % (lv[0]))
     conn.commit() # 每一批就存一次
+  conn.close()
+
+
+def getLevel5():
+  conn = sqlite3.connect(SQLITE_FILE_NAME)
+  c = conn.cursor()
+  rows = c.execute("SELECT midd, b.url FROM lv4 a left join lv3 b on a.lv3id = b.id WHERE midd <> '' and email = '' limit 7") # TODO: remove limit
+  # 因為後面會用到 cursor, 所以要先暫存起來
+  ids = []
+  for row in rows:
+    ids.append((row[0], row[1]))
+  i = 1
+  for id in ids:
+    params = urllib.parse.urlencode({'midd': id[0]}).encode(encoding='UTF8')
+    url = "http://business.com.tw/scripts/mail.asp"
+    req = urllib.request.Request(url, params)
+    con = urllib.request.urlopen(req)
+    html = con.read()
+    email = re.sub(r'.*mailto:(.*)\?subject.*', r'\1', str(html))
+    con.close()
+    c.execute("UPDATE lv4 SET email = '%s' WHERE midd = '%s'" % (email, id[0]))
+    conn.commit() # 每一批就存一次
+    print("%s/%s: %s %s" % (i, len(ids), id[0], email))
+    i = i + 1
+    time.sleep(8) # sleep n 秒   7 NG  8 OK
+  conn.close()
 
 def runit(msg):
   clear = lambda: os.system('cls')
@@ -214,6 +203,7 @@ def runit(msg):
     2: get level 2 data(如果中斷會繼續抓)
     3: get level 3 data(如果中斷會繼續抓)
     4: get level 4 data(如果中斷會繼續抓)
+    5: get email data(如果中斷會繼續抓)
     (輸入其他不認識的命令): quit program
     注意基本上都是 insert 所以 level 1 資料抓取多次
     那後面的 2 3 4 會出現多份資料
@@ -242,6 +232,10 @@ def runit(msg):
     print(">> get level 4 data...")
     getLevel4()
     msg = '== get level 4 data okay =='
+  elif cmd == '5':
+    print(">> get email data...")
+    getLevel5()
+    msg = '== get email data okay =='
   else:
     sys.exit()
 

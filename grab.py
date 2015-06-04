@@ -171,25 +171,35 @@ def getLevel4():
 def getLevel5():
   conn = sqlite3.connect(SQLITE_FILE_NAME)
   c = conn.cursor()
-  rows = c.execute("SELECT midd, b.url FROM lv4 a left join lv3 b on a.lv3id = b.id WHERE midd <> '' and email = '' limit 7") # TODO: remove limit
+  rows = c.execute("SELECT midd, email FROM lv4 WHERE midd <> '' and email IN ('', '1', '2') limit 7") # TODO: remove limit
   # 因為後面會用到 cursor, 所以要先暫存起來
   ids = []
   for row in rows:
     ids.append((row[0], row[1]))
   i = 1
   for id in ids:
-    params = urllib.parse.urlencode({'midd': id[0]}).encode(encoding='UTF8')
-    url = "http://business.com.tw/scripts/mail.asp"
-    req = urllib.request.Request(url, params)
-    con = urllib.request.urlopen(req)
-    html = con.read()
-    email = re.sub(r'.*mailto:(.*)\?subject.*', r'\1', str(html))
-    con.close()
-    c.execute("UPDATE lv4 SET email = '%s' WHERE midd = '%s'" % (email, id[0]))
-    conn.commit() # 每一批就存一次
-    print("%s/%s: %s %s" % (i, len(ids), id[0], email))
-    i = i + 1
-    time.sleep(8) # sleep n 秒   7 NG  8 OK
+    try:
+      params = urllib.parse.urlencode({'midd': id[0]}).encode(encoding='UTF8')
+      url = "http://business.com.tw/scripts/mail.asp"
+      req = urllib.request.Request(url, params)
+      con = urllib.request.urlopen(req)
+      html = con.read()
+      email = re.sub(r'.*mailto:(.*)\?subject.*', r'\1', str(html))
+      con.close()
+      c.execute("UPDATE lv4 SET email = '%s' WHERE midd = '%s'" % (email, id[0]))
+      conn.commit() # 每一批就存一次
+      print("%s/%s: %s %s" % (i, len(ids), id[0], email))
+      i = i + 1
+      time.sleep(3) # sleep n 秒   7 NG  8 OK
+    except Exception as err:
+      # 照到道理說不會出現 4 的情況
+      email = (id[1] == '' and ['1'] or id[1] == '1' and ['2'] or id[1] == '2' and ['3'] or ['4'])[0]
+      c.execute("UPDATE lv4 SET email = '%s' WHERE midd = '%s'" % (email, id[0]))
+      conn.commit()
+      print("%s/%s: %s fail %s times" % (i, len(ids), id[0], email))
+      i = i + 1
+      time.sleep(3) # sleep n 秒   7 NG  8 OK
+
   conn.close()
 
 def runit(msg):

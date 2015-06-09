@@ -177,7 +177,10 @@ def getLevel5():
   for row in rows:
     ids.append((row[0], row[1]))
   i = 1
+  x = 0
   for id in ids:
+    if x >= 5: # n 次錯誤就停止
+      break
     try:
       params = urllib.parse.urlencode({'midd': id[0]}).encode(encoding='UTF8')
       url = "http://business.com.tw/scripts/mail.asp"
@@ -198,6 +201,7 @@ def getLevel5():
       conn.commit()
       print("%s/%s: %s fail %s times" % (i, len(ids), id[0], email))
       i = i + 1
+      x = x + 1
       time.sleep(3) # sleep n 秒   7 NG  8 OK
 
   conn.close()
